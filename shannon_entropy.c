@@ -11,12 +11,13 @@ int construct_histogram(char *s, int hist[], int len) {
     int char_map[256];
     for(size_t i = 0; i != 256; ++i) char_map[i] = -1;
     for(size_t i = 0; i != len; ++i) {
-        int found_pos = char_map[s[i]];
-        if(char_map[s[i]] == -1) {
-            char_map[s[i]] = found_pos = hist_len;
+        int hist_pos = char_map[s[i]];  // position assigned for this number in
+                                        // the histogram.
+        if(char_map[s[i]] == -1) {      // new symbol found, create new position
+            char_map[s[i]] = hist_pos = hist_len;
             ++hist_len;
         }
-        hist[found_pos]++;
+        hist[hist_pos]++;
     }
     return hist_len;
 }
