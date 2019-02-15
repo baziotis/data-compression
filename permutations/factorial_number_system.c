@@ -116,8 +116,12 @@ int main(void) {
 
     // Compute bits that we will need
     int32_t num_perms = factorial[NUM_DIGITS];
-    printf("We need at most %d bits.\n", (int)ceil(log2(num_perms)));
-    printf("Alternatively, we need at most %d bits\n", 32 - count_left_zero_bits(num_perms));
+    printf("Based on Shannon entropy, we need at least: %d bits.\n", NUM_DIGITS * (int)ceil(log2(NUM_DIGITS)));
+    // Using the factorial number system as described above, the only need we need to know to save a permutation
+    // is which term of the lexicographically ordered permutations this permutation is. So, the maximum number
+    // of bits we need is the number of bits we need to save the last permutation.
+    printf("Using the factorial number system, we need at most %d bits.\n", (int)ceil(log2(num_perms)));
+    printf("Alternatively, we need at most %d bits.\n", 32 - count_left_zero_bits(num_perms));
 
     // compress step
 	uint32_t n = compute_term(perm);
