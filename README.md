@@ -7,3 +7,5 @@ Entropy is defined by the following formula:
 ![Entropy Formula](/readme_images/entropy_formula.png)
 
 where probability (or pi) is how many times i occurs in the data set (or string) divided by the length of the set (or string) or: <b>pi = count(i) / len(s)</b>
+
+All the compression stuff is about proving Shannon wrong.
