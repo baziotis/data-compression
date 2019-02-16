@@ -1,4 +1,6 @@
 # Permutations
+
+## Factorial number system
 Permutations cannot be compressed simply (like simple delta encoding) because their elements are not ordered in any specific
 way. That said, they have a very interesting property that we can exploit. <br/>
 Permutations are sets of constant length. That is, each element appears exactly once, in every permutation of an initial set.
@@ -10,6 +12,7 @@ save which term in this order our permutation is. <br/>
 If given the number of a term, we can find the permutation and given a permutation, we can find the term, then we're done.
 The way to do that is using the factorial number system and you can find a good explanation in the source code. <br/>
 <br/>
+## Exclude one by one (because no other title made sense)
 Another way to compress permutations is again by exploiting this property but now using a simpler technique.
 Let's say that we want to compress the permutation: 0213 <br/>
 We start by making an array of the digits that have not been used in the permutation (initially all): <br/>
