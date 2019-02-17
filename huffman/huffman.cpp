@@ -52,6 +52,7 @@ private:
     heap_symbol_t *data;
     initial_symbol_t *initial_symbols_buffer;
     heap_symbol_t *syms;  // temp syms buffer
+    int root_index;
     int capacity;
     int used;
     int (*symbol_cmp)(heap_symbol_t *, heap_symbol_t *);
@@ -145,6 +146,15 @@ private:
         find_vlcs_helper(syms[index].right_index, v, bit_count+1);
     }
 
+    int search_symbol(char *s, int index, int count) {
+        if(syms[index].left_index == -1) {  // leaf
+            printf("%s", initial_symbols_buffer[syms[index].right_index].sym);
+            return count;
+        }
+        if(s[count] == '0') search_symbol(s, syms[index].left_index, count+1);
+        else search_symbol(s, syms[index].right_index, count+1);
+    }
+
     void find_vlcs(int index) {
         find_vlcs_helper(index, 0U, 0);
     }
@@ -152,7 +162,7 @@ private:
     // TODO(stefanos): Investigate if the tree is being built
     // in the most optimal way.
     // construct the huffman tree, return the index of the root.
-    int construct_huffman_tree(void) {
+    void construct_huffman_tree(void) {
         int i = 0;
         while(used > 1) {
             // TODO(stefanos): Think how we can remove duplicates.
@@ -172,7 +182,31 @@ private:
             i++;
             print();
         }
-        return i-1;
+        root_index = i-1;
+    }
+
+
+    void search_codeword(char *sym, uint32_t *out_word, int *out_len) {
+        int l = 0;
+        int r = capacity - 1;
+        int mid = (l+r)/2;
+        char buff[SYM_LEN+1];
+        strncpy(buff, sym, SYM_LEN);
+        buff[SYM_LEN] = '\0';
+
+        while(l <= r) {
+            int comp = strcmp(buff, initial_symbols_buffer[mid].sym);
+            if(comp > 0) {
+                l = mid + 1;
+            } else if(comp < 0) {
+                r = mid - 1;
+            } else {
+                *out_word = initial_symbols_buffer[mid].codeword;
+                *out_len = initial_symbols_buffer[mid].code_len;
+                return;
+            }
+            mid = (l+r)/2;
+        }
     }
 
     void print(void) {
@@ -208,7 +242,7 @@ public:
         // TODO(stefanos): This is not an exact computation
         size_t num_items = 3 * capacity;
         syms = (heap_symbol_t *) malloc(num_items * sizeof(heap_symbol_t));
-        int root_index = construct_huffman_tree();
+        construct_huffman_tree();
         find_vlcs(root_index);
     }
 
@@ -223,29 +257,6 @@ public:
         }
     }
 
-    void search_codeword(char *sym, uint32_t *out_word, int *out_len) {
-        int l = 0;
-        int r = capacity - 1;
-        int mid = (l+r)/2;
-        char buff[SYM_LEN+1];
-        strncpy(buff, sym, SYM_LEN);
-        buff[SYM_LEN] = '\0';
-
-        while(l <= r) {
-            int comp = strcmp(buff, initial_symbols_buffer[mid].sym);
-            if(comp > 0) {
-                l = mid + 1;
-            } else if(comp < 0) {
-                r = mid - 1;
-            } else {
-                *out_word = initial_symbols_buffer[mid].codeword;
-                *out_len = initial_symbols_buffer[mid].code_len;
-                return;
-            }
-            mid = (l+r)/2;
-        }
-    }
-
     void encode(char *s) {
         while(*s != '\0') {
             uint32_t codeword;
@@ -254,7 +265,13 @@ public:
             print_bin(codeword, code_len);
             ++s;
         }
-        printf("\n");
+    }
+
+    void decode(char *s) {
+        int i = 0;
+        while(s[i] != '\0') {
+            i = search_symbol(s, root_index, i);
+        }
     }
 
     void free_heap(void) {
@@ -277,10 +294,16 @@ int main(void) {
     huffman_heap.build_vlcs();
     printf("Print VLCs\n");
     huffman_heap.print_vlcs();
-    char s[32];
-    strcpy(s, "aabca");
-    printf("%s: ", s);
+    char s[64];
+    strcpy(s, "aaabaabcabababababaaccccbcbcbcbabcabcabcab");
+    printf("\n%s: \n", s);
+    printf("\tencode: ");
     huffman_heap.encode(s);
+    printf("\n");
+    strcpy(s, "11100110001100100100100100110101010100010001000100100011000110001100");
+    printf("\tdecode: ");
+    huffman_heap.decode(s);
+    printf("\n");
     huffman_heap.free_heap();
     return 0;
 }
