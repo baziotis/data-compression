@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define SYM_LEN 1
+
 void print_bin(uint32_t v, int lim) {
     uint32_t r = 1U << 31;
     while(r && lim--) {
@@ -14,41 +16,48 @@ void print_bin(uint32_t v, int lim) {
         }
         r >>= 1;
     }
-    printf("\n");
 }
 
-// The basic data structure for Huffman encoding is a min heap.
-
-typedef struct symbol symbol_t;
-
-typedef struct symbol {
-public:
-    char *sym;
-    int freq;
-    symbol_t *left, *right;
-
-    static int cmp(symbol_t *a, symbol_t *b) {
-        return (a->freq - b->freq);
-    }
-
-    symbol_t& operator=(symbol_t const& copy) {
-        sym = copy.sym;
-        freq = copy.freq;
-        left = copy.left;
-        right = copy.right;
-        return *this;
-    }
-} symbol_t;
+// TODO(stefanos):
+// 1) IMPORTANT: Better architecture and getting rid of
+// very C-like code.
+// 2) Investigate if the huffman tree constructed is optimal.
+// 3) Decrease size (if possible) of the syms buffer.
 
 typedef struct {
 private:
-    symbol_t *data;
+    typedef struct heap_symbol {
+    public:
+        int freq;
+        int left_index, right_index;
+
+        static int cmp(struct heap_symbol *a, struct heap_symbol *b) {
+            return (a->freq - b->freq);
+        }
+
+        struct heap_symbol& operator=(struct heap_symbol const& copy) {
+            freq = copy.freq;
+            left_index = copy.left_index;
+            right_index = copy.right_index;
+            return *this;
+        }
+    } heap_symbol_t;
+
+    typedef struct initial_symbol {
+        char sym[SYM_LEN+1];
+        uint32_t codeword;
+        int code_len;
+    } initial_symbol_t;
+
+    heap_symbol_t *data;
+    initial_symbol_t *initial_symbols_buffer;
+    heap_symbol_t *syms;  // temp syms buffer
     int capacity;
     int used;
-    int (*symbol_cmp)(symbol_t *, symbol_t *);
+    int (*symbol_cmp)(heap_symbol_t *, heap_symbol_t *);
 
     void swap(int a, int b) {
-        symbol_t temp = data[a];
+        heap_symbol_t temp = data[a];
         data[a] = data[b];
         data[b] = temp;
     }
@@ -102,15 +111,7 @@ private:
         }
     }
 
-public:
-    void initialize(int cap, int (*sym_cmp)(symbol_t *a, symbol_t *b)) {
-        data = (symbol_t *) malloc(cap * sizeof(symbol_t));
-        capacity = cap;
-        used = 0;
-        symbol_cmp = sym_cmp;
-    }
-
-    void insert(symbol_t s) {
+    void heap_insert(heap_symbol_t s) {
         // insert into a new leaf node
         data[used] = s;
         // O(logn) heapify up
@@ -118,8 +119,8 @@ public:
         ++used;
     }
 
-    symbol_t remove_min(void) {
-        symbol_t res;
+    heap_symbol_t remove_min(void) {
+        heap_symbol_t res;
         res.freq = -1;
         // IMPORTANT(stefanos): value on empty heap depends on
         // usage.
@@ -133,6 +134,47 @@ public:
         return res;
     }
 
+    void find_vlcs_helper(int index, uint32_t v, int bit_count) {
+        if(syms[index].left_index == -1) {  // leaf
+            initial_symbols_buffer[syms[index].right_index].codeword = v;
+            initial_symbols_buffer[syms[index].right_index].code_len = bit_count;
+            return;
+        }
+        find_vlcs_helper(syms[index].left_index, v, bit_count+1);
+        v = v | (1U << (31 - bit_count));
+        find_vlcs_helper(syms[index].right_index, v, bit_count+1);
+    }
+
+    void find_vlcs(int index) {
+        find_vlcs_helper(index, 0U, 0);
+    }
+
+    // TODO(stefanos): Investigate if the tree is being built
+    // in the most optimal way.
+    // construct the huffman tree, return the index of the root.
+    int construct_huffman_tree(void) {
+        int i = 0;
+        while(used > 1) {
+            // TODO(stefanos): Think how we can remove duplicates.
+            heap_symbol_t a = remove_min();
+            syms[i] = a;
+            int a_index = i;
+            i++;
+            heap_symbol_t b = remove_min();
+            syms[i] = b;
+            int b_index = i;
+            i++;
+            heap_symbol_t *cp = &syms[i];
+            cp->freq = a.freq + b.freq;
+            cp->left_index = a_index;
+            cp->right_index = b_index;
+            heap_insert(*cp);
+            i++;
+            print();
+        }
+        return i-1;
+    }
+
     void print(void) {
         for(int i = 0; i != used; ++i) {
             printf("%d ", data[i].freq);
@@ -140,43 +182,79 @@ public:
         printf("\n");
     }
 
-    void print_vlc(symbol_t *root, uint32_t v, int index) {
-        if(root != NULL) {
-            if(root->left == NULL && root->right == NULL) {  // leaf
-                printf("%s: ", root->sym);
-                print_bin(v, index);
-            }
-            print_vlc(root->left, v, index+1);
-            v = v | (1U << (31 - index));
-            print_vlc(root->right, v, index+1);
+public:
+    void initialize(int cap) {
+        size_t heap_symbols_size = cap * sizeof(heap_symbol_t);
+        size_t initial_symbols_size = cap * sizeof(initial_symbol_t);
+        void *mem = malloc(heap_symbols_size + initial_symbols_size);
+        data = (heap_symbol_t *) mem;
+        initial_symbols_buffer = (initial_symbol_t *) (((uint8_t *) mem)
+                                                      + heap_symbols_size);
+        capacity = cap;
+        used = 0;
+        symbol_cmp = heap_symbol::cmp;
+    }
+
+    void insert(const char *a, int freq) {
+        strcpy(initial_symbols_buffer[used].sym, a);
+        heap_symbol_t s;
+        s.freq = freq;
+        s.left_index = -1;
+        s.right_index = used;
+        heap_insert(s);
+    }
+
+    void build_vlcs(void) {
+        // TODO(stefanos): This is not an exact computation
+        size_t num_items = 3 * capacity;
+        syms = (heap_symbol_t *) malloc(num_items * sizeof(heap_symbol_t));
+        int root_index = construct_huffman_tree();
+        find_vlcs(root_index);
+    }
+
+    void print_vlcs(void) {
+        for(int i = 0; i != capacity; ++i) {
+            char *s = initial_symbols_buffer[i].sym;
+            uint32_t codeword = initial_symbols_buffer[i].codeword;
+            uint32_t code_len = initial_symbols_buffer[i].code_len;
+            printf("%s: ", s);
+            print_bin(codeword, code_len);
+            printf("\n");
         }
     }
 
-    void build_vlc(void) {
-        symbol_t *syms = (symbol_t *) malloc(3 * capacity * sizeof(symbol_t));
-        assert(syms != NULL);
-        int i = 0;
-        while(used > 1) {
-            symbol_t a = remove_min();
-            syms[i] = a;
-            symbol_t *ap = &syms[i];
-            i++;
-            symbol_t b = remove_min();
-            syms[i] = b;
-            printf("a: %d, b: %d\n", a.freq, b.freq);
-            symbol_t *bp = &syms[i];
-            i++;
-            symbol_t *cp = &syms[i];
-            cp->freq = a.freq + b.freq;
-            cp->left = bp;
-            cp->right = ap;
-            insert(syms[i]);
-            i++;
-            print();
+    void search_codeword(char *sym, uint32_t *out_word, int *out_len) {
+        int l = 0;
+        int r = capacity - 1;
+        int mid = (l+r)/2;
+        char buff[SYM_LEN+1];
+        strncpy(buff, sym, SYM_LEN);
+        buff[SYM_LEN] = '\0';
+
+        while(l <= r) {
+            int comp = strcmp(buff, initial_symbols_buffer[mid].sym);
+            if(comp > 0) {
+                l = mid + 1;
+            } else if(comp < 0) {
+                r = mid - 1;
+            } else {
+                *out_word = initial_symbols_buffer[mid].codeword;
+                *out_len = initial_symbols_buffer[mid].code_len;
+                return;
+            }
+            mid = (l+r)/2;
         }
-        symbol_t root = remove_min();
-        print_vlc(&root, 0U, 0);
-        free(syms);
+    }
+
+    void encode(char *s) {
+        while(*s != '\0') {
+            uint32_t codeword;
+            int code_len;
+            search_codeword(s, &codeword, &code_len);
+            print_bin(codeword, code_len);
+            ++s;
+        }
+        printf("\n");
     }
 
     void free_heap(void) {
@@ -186,27 +264,23 @@ public:
 
 int main(void) {
     huffman_heap_t huffman_heap;
-    symbol_t min;
-    symbol_t temp;
-    temp.left = NULL;
-    temp.right = NULL;
 
-    huffman_heap.initialize(3, symbol_t::cmp);
-    temp.sym = strdup("A");
-    temp.freq = 4;
-    huffman_heap.insert(temp);
-    huffman_heap.print();
-    temp.sym = strdup("B");
-    temp.freq = 1;
-    huffman_heap.insert(temp);
-    huffman_heap.print();
-    temp.sym = strdup("C");
-    temp.freq = 1;
-    huffman_heap.insert(temp);
-    huffman_heap.print();
+    // NOTE(stefanos): Insertions should happen in
+    // sorted order. (We could just do sorting inside the heap, we
+    // just save time)
+    huffman_heap.initialize(3);
+    huffman_heap.insert("a", 4);
+    huffman_heap.insert("b", 1);
+    huffman_heap.insert("c", 1);
 
-    printf("\nBuild VLC\n");
-    huffman_heap.build_vlc();
+    printf("Build VLCs\n");
+    huffman_heap.build_vlcs();
+    printf("Print VLCs\n");
+    huffman_heap.print_vlcs();
+    char s[32];
+    strcpy(s, "aabca");
+    printf("%s: ", s);
+    huffman_heap.encode(s);
     huffman_heap.free_heap();
     return 0;
 }
