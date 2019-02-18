@@ -288,11 +288,11 @@ public:
     }
 
     encoded_data_t encode(char *s) {
-		int len = strlen(s);
-		// TODO(stefanos): Use actual maximum code_len for
-		// this computation.
-		int max_len = 4;
-		size_t alloc_size = (4 * len) / 8 + 1;
+        int len = strlen(s);
+        // TODO(stefanos): Use actual maximum code_len for
+        // this computation.
+        int max_len = 4;
+        size_t alloc_size = (4 * len) / 8 + 1;
         uint8_t *out_buffer = (uint8_t *) calloc(alloc_size, sizeof(uint8_t));
         char *init_addr = s;
 		size_t i = 0;
