@@ -4,9 +4,38 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SYM_LEN 1
+uint8_t *get_byte(uint8_t *buff, size_t index) {
+    size_t byte_off = index >> 3; // div 8
+    uint8_t *p = (uint8_t *) (buff + byte_off);
+    return p;
+}
 
-void print_bin(uint32_t v, int lim) {
+void set_bit(uint8_t *buff, size_t index) {
+    uint8_t *p = get_byte(buff, index);
+    size_t in_byte_off = index & 7; // 7 == 0B111, aka mod 8
+    *p = (*p) | (1U << in_byte_off);
+}
+
+uint8_t get_bit(uint8_t *buff, size_t index) {
+    uint8_t *p = get_byte(buff, index);
+    size_t in_byte_off = index & 7; // 7 == 0B111, aka mod 8
+    uint8_t ret_val = ((*p) & (1U << in_byte_off)) >> in_byte_off;
+    return ret_val;
+}
+
+void print_bin_arbitrary(uint8_t *buff, size_t lim) {
+    size_t len = 0;
+    for(size_t i = 0; i != lim; ++i) {
+        uint8_t bit = get_bit(buff, i);
+        if(bit) {
+            printf("1");
+        } else {
+            printf("0");
+        }
+    }
+}
+
+void print_bin_word(uint32_t v, int lim) {
     uint32_t r = 1U << 31;
     while(r && lim--) {
         if(v & r) {
@@ -23,6 +52,11 @@ void print_bin(uint32_t v, int lim) {
 // very C-like code.
 // 2) Investigate if the huffman tree constructed is optimal.
 // 3) Decrease size (if possible) of the syms buffer.
+
+typedef struct {
+    uint8_t *data;
+    size_t len;
+} encoded_data_t;
 
 typedef struct {
 private:
@@ -44,7 +78,7 @@ private:
     } heap_symbol_t;
 
     typedef struct initial_symbol {
-        char sym[SYM_LEN+1];
+        char sym;
         uint32_t codeword;
         int code_len;
     } initial_symbol_t;
@@ -146,13 +180,13 @@ private:
         find_vlcs_helper(syms[index].right_index, v, bit_count+1);
     }
 
-    int search_symbol(char *s, int index, int count) {
+    int search_and_print_symbol(uint8_t *buff, int index, size_t count) {
         if(syms[index].left_index == -1) {  // leaf
-            printf("%s", initial_symbols_buffer[syms[index].right_index].sym);
+            printf("%c", initial_symbols_buffer[syms[index].right_index].sym);
             return count;
         }
-        if(s[count] == '0') search_symbol(s, syms[index].left_index, count+1);
-        else search_symbol(s, syms[index].right_index, count+1);
+        if(!get_bit(buff, count)) search_and_print_symbol(buff, syms[index].left_index, count+1);
+        else search_and_print_symbol(buff, syms[index].right_index, count+1);
     }
 
     void find_vlcs(int index) {
@@ -186,16 +220,13 @@ private:
     }
 
 
-    void search_codeword(char *sym, uint32_t *out_word, int *out_len) {
+    void search_codeword(char sym, uint32_t *out_word, int *out_len) {
         int l = 0;
         int r = capacity - 1;
         int mid = (l+r)/2;
-        char buff[SYM_LEN+1];
-        strncpy(buff, sym, SYM_LEN);
-        buff[SYM_LEN] = '\0';
 
         while(l <= r) {
-            int comp = strcmp(buff, initial_symbols_buffer[mid].sym);
+            int comp = sym - initial_symbols_buffer[mid].sym;
             if(comp > 0) {
                 l = mid + 1;
             } else if(comp < 0) {
@@ -215,7 +246,6 @@ private:
         }
         printf("\n");
     }
-
 public:
     void initialize(int cap) {
         size_t heap_symbols_size = cap * sizeof(heap_symbol_t);
@@ -229,8 +259,8 @@ public:
         symbol_cmp = heap_symbol::cmp;
     }
 
-    void insert(const char *a, int freq) {
-        strcpy(initial_symbols_buffer[used].sym, a);
+    void insert(char sym, int freq) {
+        initial_symbols_buffer[used].sym = sym;
         heap_symbol_t s;
         s.freq = freq;
         s.left_index = -1;
@@ -248,29 +278,48 @@ public:
 
     void print_vlcs(void) {
         for(int i = 0; i != capacity; ++i) {
-            char *s = initial_symbols_buffer[i].sym;
+            char sym = initial_symbols_buffer[i].sym;
             uint32_t codeword = initial_symbols_buffer[i].codeword;
             uint32_t code_len = initial_symbols_buffer[i].code_len;
-            printf("%s: ", s);
-            print_bin(codeword, code_len);
+            printf("%c: ", sym);
+            print_bin_word(codeword, code_len);
             printf("\n");
         }
     }
 
-    void encode(char *s) {
+    encoded_data_t encode(char *s) {
+		int len = strlen(s);
+		// TODO(stefanos): Use actual maximum code_len for
+		// this computation.
+		int max_len = 4;
+		size_t alloc_size = (4 * len) / 8 + 1;
+        uint8_t *out_buffer = (uint8_t *) calloc(alloc_size, sizeof(uint8_t));
+        char *init_addr = s;
+		size_t i = 0;
         while(*s != '\0') {
             uint32_t codeword;
             int code_len;
-            search_codeword(s, &codeword, &code_len);
-            print_bin(codeword, code_len);
+            search_codeword(*s, &codeword, &code_len);
+            uint32_t r = 1U << 31;
+            while(code_len--) {
+                if(codeword & r) {
+                    set_bit(out_buffer, i);
+                }
+                r >>= 1;
+                ++i;
+            }
             ++s;
         }
+        encoded_data_t enc_data;
+        enc_data.data = out_buffer;
+        enc_data.len = i;
+        return enc_data;
     }
 
-    void decode(char *s) {
-        int i = 0;
-        while(s[i] != '\0') {
-            i = search_symbol(s, root_index, i);
+    void decode(encoded_data_t enc_data) {
+        size_t i = 0;
+        while(i != enc_data.len) {
+            i = search_and_print_symbol(enc_data.data, root_index, i);
         }
     }
 
@@ -286,23 +335,25 @@ int main(void) {
     // sorted order. (We could just do sorting inside the heap, we
     // just save time)
     huffman_heap.initialize(3);
-    huffman_heap.insert("a", 4);
-    huffman_heap.insert("b", 1);
-    huffman_heap.insert("c", 1);
+    // computed kind of randomly (you can take the shannon_entropy.c histogram construction functions
+    // to compute these values).
+    huffman_heap.insert('a', 4);
+    huffman_heap.insert('b', 1);
+    huffman_heap.insert('c', 1);
 
     printf("Build VLCs\n");
     huffman_heap.build_vlcs();
     printf("Print VLCs\n");
     huffman_heap.print_vlcs();
     char s[64];
-    strcpy(s, "aaabaabcabababababaaccccbcbcbcbabcabcabcab");
-    printf("\n%s: \n", s);
+    strcpy(s, "aabaccba");
+    printf("\n%s:\n", s);
+    encoded_data_t enc_data = huffman_heap.encode(s);
     printf("\tencode: ");
-    huffman_heap.encode(s);
+    print_bin_arbitrary(enc_data.data, enc_data.len);
     printf("\n");
-    strcpy(s, "11100110001100100100100100110101010100010001000100100011000110001100");
     printf("\tdecode: ");
-    huffman_heap.decode(s);
+    huffman_heap.decode(enc_data);
     printf("\n");
     huffman_heap.free_heap();
     return 0;
