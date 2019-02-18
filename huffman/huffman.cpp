@@ -52,6 +52,7 @@ void print_bin_word(uint32_t v, int lim) {
 // very C-like code.
 // 2) Investigate if the huffman tree constructed is optimal.
 // 3) Decrease size (if possible) of the syms buffer.
+// 4) Better decisions on when to use size_t and when to use int.
 
 typedef struct {
     uint8_t *data;
@@ -180,13 +181,13 @@ private:
         find_vlcs_helper(syms[index].right_index, v, bit_count+1);
     }
 
-    int search_and_print_symbol(uint8_t *buff, int index, size_t count) {
+    int search_symbol(uint8_t *buff, int index, size_t count, char *sym) {
         if(syms[index].left_index == -1) {  // leaf
-            printf("%c", initial_symbols_buffer[syms[index].right_index].sym);
+            *sym = initial_symbols_buffer[syms[index].right_index].sym;
             return count;
         }
-        if(!get_bit(buff, count)) search_and_print_symbol(buff, syms[index].left_index, count+1);
-        else search_and_print_symbol(buff, syms[index].right_index, count+1);
+        if(!get_bit(buff, count)) search_symbol(buff, syms[index].left_index, count+1, sym);
+        else search_symbol(buff, syms[index].right_index, count+1, sym);
     }
 
     void find_vlcs(int index) {
@@ -291,8 +292,8 @@ public:
         int len = strlen(s);
         // TODO(stefanos): Use actual maximum code_len for
         // this computation.
-        int max_len = 4;
-        size_t alloc_size = (4 * len) / 8 + 1;
+        int max_len = 6;
+        size_t alloc_size = (max_len * len) / 8 + 1;
         uint8_t *out_buffer = (uint8_t *) calloc(alloc_size, sizeof(uint8_t));
         char *init_addr = s;
 		size_t i = 0;
@@ -316,10 +317,13 @@ public:
         return enc_data;
     }
 
-    void decode(encoded_data_t enc_data) {
+    void decode(encoded_data_t enc_data, char *out) {
         size_t i = 0;
+        size_t sym_counter = 0;
+        char sym;
         while(i != enc_data.len) {
-            i = search_and_print_symbol(enc_data.data, root_index, i);
+            i = search_symbol(enc_data.data, root_index, i, &sym);
+            out[sym_counter++] = sym;
         }
     }
 
@@ -328,33 +332,93 @@ public:
     }
 } huffman_heap_t;
 
-int main(void) {
+typedef struct {
+    char sym;
+    int freq;
+} hist_sym_t;
+
+int construct_histogram(char *s, hist_sym_t hist[256], int len) {
+    int hist_len = 0;
+    int char_map[256];
+    for(size_t i = 0; i != 256; ++i) {
+        char_map[i] = -1;
+    }
+    for(size_t i = 0; i != len; ++i) {
+        int hist_pos = char_map[s[i]];  // position assigned for this number in
+                                        // the histogram.
+        if(hist_pos == -1) {      // new symbol found, create new position
+            char_map[s[i]] = hist_pos = hist_len;
+            hist[hist_pos].sym = s[i];
+            hist[hist_pos].freq = 0;
+            ++hist_len;
+        }
+        hist[hist_pos].freq++;
+    }
+    return hist_len;
+}
+
+void read_file(char *fname, char **s_out, int *len_out) {
+    FILE *fp = fopen(fname, "r");
+    fseek(fp, 0L, SEEK_END);
+    size_t sz = ftell(fp);
+    rewind(fp);
+    char *s = (char *) malloc(sz * sizeof(char));
+    int c;
+    size_t i = 0;
+    while((c = fgetc(fp)) != EOF) {
+        s[i++] = c;
+    }
+    s[--i] = '\0'; // terminate the string and remove the newline
+    fclose(fp);
+    *s_out = s;
+    *len_out = i;
+}
+
+int comp_hist(const void *a, const void *b) {
+    hist_sym_t *s1 = (hist_sym_t *) a;
+    hist_sym_t *s2 = (hist_sym_t *) b;
+    return (s1->sym - s2->sym);
+}
+
+int main(int argc, char **argv) {
+    char *s;
+    int len;
+    read_file(argv[1], &s, &len);
+    printf("Initial size: %d\n", len);
+
+    hist_sym_t hist[256];
+    int hist_len = construct_histogram(s, hist, len);
+    qsort(hist, hist_len, sizeof(hist_sym_t), comp_hist);
+    for(int j = 0; j != hist_len; ++j) {
+        printf("%c %d\n", hist[j].sym, hist[j].freq);
+    }
+
     huffman_heap_t huffman_heap;
 
     // NOTE(stefanos): Insertions should happen in
     // sorted order. (We could just do sorting inside the heap, we
     // just save time)
-    huffman_heap.initialize(3);
+    huffman_heap.initialize(hist_len);
     // computed kind of randomly (you can take the shannon_entropy.c histogram construction functions
     // to compute these values).
-    huffman_heap.insert('a', 4);
-    huffman_heap.insert('b', 1);
-    huffman_heap.insert('c', 1);
+    for(int j = 0; j != hist_len; ++j) {
+        huffman_heap.insert(hist[j].sym, hist[j].freq);
+    }
 
     printf("Build VLCs\n");
     huffman_heap.build_vlcs();
     printf("Print VLCs\n");
     huffman_heap.print_vlcs();
-    char s[64];
-    strcpy(s, "aabaccba");
     printf("\n%s:\n", s);
     encoded_data_t enc_data = huffman_heap.encode(s);
     printf("\tencode: ");
-    print_bin_arbitrary(enc_data.data, enc_data.len);
+    //print_bin_arbitrary(enc_data.data, enc_data.len);
     printf("\n");
-    printf("\tdecode: ");
-    huffman_heap.decode(enc_data);
-    printf("\n");
+    printf("Compressed size: %zd\n", enc_data.len / 8 + 1);
+    char *decoded_s = (char *) malloc(len * sizeof(char));
+    huffman_heap.decode(enc_data, decoded_s);
+    //printf("decode: %s\n", decoded_s);
+    printf("diff: %d\n", strcmp(s, decoded_s));
     huffman_heap.free_heap();
     return 0;
 }
