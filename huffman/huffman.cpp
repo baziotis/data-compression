@@ -215,7 +215,7 @@ private:
             cp->right_index = b_index;
             heap_insert(*cp);
             i++;
-            print();
+            // print();
         }
         root_index = i-1;
     }
@@ -389,9 +389,9 @@ int main(int argc, char **argv) {
     hist_sym_t hist[256];
     int hist_len = construct_histogram(s, hist, len);
     qsort(hist, hist_len, sizeof(hist_sym_t), comp_hist);
-    for(int j = 0; j != hist_len; ++j) {
-        printf("%c %d\n", hist[j].sym, hist[j].freq);
-    }
+    // for(int j = 0; j != hist_len; ++j) {
+    //     printf("%c %d\n", hist[j].sym, hist[j].freq);
+    // }
 
     huffman_heap_t huffman_heap;
 
@@ -408,16 +408,15 @@ int main(int argc, char **argv) {
     printf("Build VLCs\n");
     huffman_heap.build_vlcs();
     printf("Print VLCs\n");
-    huffman_heap.print_vlcs();
-    printf("\n%s:\n", s);
+    // huffman_heap.print_vlcs();
+    // printf("\n%s:\n", s);
     encoded_data_t enc_data = huffman_heap.encode(s);
-    printf("\tencode: ");
+    printf("encode\n");
     //print_bin_arbitrary(enc_data.data, enc_data.len);
-    printf("\n");
     printf("Compressed size: %zd\n", enc_data.len / 8 + 1);
     char *decoded_s = (char *) malloc(len * sizeof(char));
+    printf("decode\n");
     huffman_heap.decode(enc_data, decoded_s);
-    //printf("decode: %s\n", decoded_s);
     printf("diff: %d\n", strcmp(s, decoded_s));
     huffman_heap.free_heap();
     return 0;
