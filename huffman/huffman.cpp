@@ -186,8 +186,8 @@ private:
             *sym = initial_symbols_buffer[syms[index].right_index].sym;
             return count;
         }
-        if(!get_bit(buff, count)) search_symbol(buff, syms[index].left_index, count+1, sym);
-        else search_symbol(buff, syms[index].right_index, count+1, sym);
+        if(!get_bit(buff, count)) return search_symbol(buff, syms[index].left_index, count+1, sym);
+        else return search_symbol(buff, syms[index].right_index, count+1, sym);
     }
 
     void find_vlcs(int index) {
@@ -343,7 +343,7 @@ int construct_histogram(char *s, hist_sym_t hist[256], int len) {
     for(size_t i = 0; i != 256; ++i) {
         char_map[i] = -1;
     }
-    for(size_t i = 0; i != len; ++i) {
+    for(ssize_t i = 0; i != len; ++i) {
         int hist_pos = char_map[s[i]];  // position assigned for this number in
                                         // the histogram.
         if(hist_pos == -1) {      // new symbol found, create new position
